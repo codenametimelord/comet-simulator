@@ -1,81 +1,89 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>Kryptonite Comets — Finger Gravity</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kryptonite Comets with Bouncing & Finger Gravity</title>
 <style>
-  :root{--ui-bg:rgba(0,0,0,.45);--accent:#6cff88}
-  html,body{height:100%;margin:0;background:#000;overflow:hidden;-webkit-user-select:none;user-select:none}
-  canvas{display:block;width:100vw;height:100vh}
-  #hud{position:fixed;left:10px;top:10px;padding:8px;border-radius:8px;background:var(--ui-bg);color:#e9ffe9;font-family:system-ui,-apple-system,Roboto,Arial;font-size:13px;z-index:20}
-  #hint{position:fixed;right:10px;top:10px;padding:8px;border-radius:8px;background:rgba(255,255,255,0.03);color:#ddd;font-family:monospace;font-size:12px;z-index:20}
+  body, html {
+    margin:0; padding:0; overflow:hidden; background:#000;
+    -webkit-user-select:none; user-select:none;
+    touch-action:none;
+  }
+  canvas {
+    display:block; width:100vw; height:100vh;
+  }
 </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
-<div id="hud">Touch to attract — finger = strongest gravity</div>
-<div id="hint">Comets: pre-spawned • Planets orbit own centers</div>
-
 <script>
 (() => {
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
-  let W = canvas.width = innerWidth;
-  let H = canvas.height = innerHeight;
-  window.addEventListener('resize', () => { W = canvas.width = innerWidth; H = canvas.height = innerHeight; setupScene(); });
+  let W = canvas.width = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
 
-  // ======= Tunables =======
-  const NUM_COMETS = Math.max(5, Math.round(Math.min(12, (W*H)/180000))); // scale with screen
-  const NUM_PLANETS = 6;
-  const STAR_COUNT = Math.round(Math.min(400, (W*H)/9000));
-  const TRAIL_LEN = 28;
-  const MAX_ACCEL = 0.9;          // steering cap
-  const SMOOTHING = 0.14;         // steering smoothing
+  // Config
+  const NUM_PLANETS = 12;
+  const NUM_COMETS = 8;
+  const STAR_COUNT = 250;
+  const MAX_TRAIL = 20;
+  const RESTITUTION = 0.8; // comet bounce elasticity
+  const PLANET_GRAV_SCALE = 0.0009;
+  const FINGER_GRAV_SCALE = 0.007;
+  const MAX_ACCEL = 0.8;
+  const SMOOTHING = 0.15;
   const FRICTION = 0.995;
-  const PLANET_GRAV_SCALE = 0.0009; // planets inverse-square multiplier
-  const FINGER_GRAV_SCALE = 0.006;  // finger gravity stronger than planets
-  const MIN_PLANET_CENTER_DIST = Math.min(W,H)*0.2;
-  const RESTITUTION = 0.84;       // bounce elasticity
-  // =========================
 
   // Starfield
-  let stars = [];
-  // Planets (orbiting)
-  let planets = [];
-  // Comets
-  let comets = [];
-  // Finger (single)
-  let finger = { active: false, x: 0, y: 0 };
+  const stars = [];
 
-  function randRange(a,b){ return a + Math.random()*(b-a); }
+  // Planets orbit data
+  const planets = [];
 
-  function setupScene(){
-    // stars
-    stars = [];
-    for (let i=0;i<STAR_COUNT;i++){
-      stars.push({ x: Math.random()*W, y: Math.random()*H, r: Math.random()*1.6 + 0.3, layer: Math.random()*0.9 + 0.1 });
+  // Comets data
+  const comets = [];
+
+  // Finger
+  const finger = { x: W/2, y: H/2, active: false };
+
+  function randRange(min,max){ return min + Math.random()*(max-min); }
+
+  // Setup stars
+  function setupStars(){
+    stars.length=0;
+    for(let i=0;i<STAR_COUNT;i++){
+      stars.push({
+        x: Math.random()*W,
+        y: Math.random()*H,
+        r: Math.random()*1.7+0.3,
+        layer: Math.random()*0.9+0.1
+      });
     }
+  }
 
-    // planets: each has an invisible orbital center (maybe off-screen), orbitRadius, angle, angularSpeed
-    planets = [];
-    for (let i=0;i<NUM_PLANETS;i++){
-      // orbital center somewhere in extended area [-W,2W] x [-H,2H] to allow off-screen centers
-      const centerX = randRange(-W*0.6, W*1.6);
-      const centerY = randRange(-H*0.6, H*1.6);
-      const orbitRadius = randRange(Math.max(40, Math.min(W,H)*0.12), Math.max(W,H)*0.7);
+  // Setup planets with own orbital centers (may be off screen)
+  function setupPlanets(){
+    planets.length=0;
+    for(let i=0;i<NUM_PLANETS;i++){
+      const centerX = randRange(-W*0.6,W*1.6);
+      const centerY = randRange(-H*0.6,H*1.6);
+      const orbitRadius = randRange(Math.max(40,Math.min(W,H)*0.12), Math.max(W,H)*0.7);
       const angle = Math.random()*Math.PI*2;
-      const angularSpeed = randRange(-0.0009, 0.0009) * (0.5 + Math.random()*1.6); // slow
+      const angularSpeed = randRange(-0.0009,0.0009)*(0.5+Math.random()*1.6);
       const size = randRange(20, 64);
-      const mass = size * (80 + Math.random()*300); // variable mass
-      const color = `hsl(${Math.floor(Math.random()*360)} ${60 + Math.random()*30}% ${40 + Math.random()*10}%)`;
-      planets.push({ centerX, centerY, orbitRadius, angle, angularSpeed, size, mass, color, x:0, y:0 });
+      const mass = size*(80+Math.random()*300);
+      const color = `hsl(${Math.floor(Math.random()*360)} 60% ${40+Math.random()*10}%)`;
+      planets.push({centerX, centerY, orbitRadius, angle, angularSpeed, size, mass, color, x:0, y:0});
     }
+  }
 
-    // initial comets pre-spawned
-    comets = [];
-    for (let i=0;i<NUM_COMETS;i++){
-      const size = Math.max(10, Math.min(28, Math.round((Math.min(W,H)/40) + (Math.random()*8-4))));
+  // Setup comets pre-spawned
+  function setupComets(){
+    comets.length=0;
+    for(let i=0;i<NUM_COMETS;i++){
+      const size = Math.max(10,Math.min(28, Math.round((Math.min(W,H)/40)+(Math.random()*8-4))));
       const x = Math.random()*W;
       const y = Math.random()*H;
       comets.push({
@@ -85,182 +93,210 @@
         vy: (Math.random()-0.5)*0.6,
         size,
         mass: size*1.1 + Math.random()*2,
-        trail: []
+        trail: [],
+        // Color blend for green-purple fade (0=green,1=purple)
+        blend: 0,
+        baseColor: {r: 86, g:255, b:109}, // bright green
+        targetColor: {r:128, g:0, b:128} // purple
       });
     }
   }
 
-  setupScene();
+  // Handle window resize
+  function resize(){
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    setupStars();
+    setupPlanets();
+    setupComets();
+  }
 
-  // pointer handlers - single finger control (mouse works as single-pointer)
+  window.addEventListener('resize', resize);
+
+  // Initialize
+  resize();
+
+  // Pointer events - single finger
   canvas.style.touchAction = 'none';
-  window.addEventListener('pointerdown', (e) => {
+  window.addEventListener('pointerdown', e=>{
     e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
     finger.active = true;
-    finger.x = e.clientX - rect.left;
-    finger.y = e.clientY - rect.top;
+    finger.x = e.clientX;
+    finger.y = e.clientY;
   }, {passive:false});
-  window.addEventListener('pointermove', (e) => {
-    if (!finger.active) return;
-    const rect = canvas.getBoundingClientRect();
-    finger.x = e.clientX - rect.left;
-    finger.y = e.clientY - rect.top;
+  window.addEventListener('pointermove', e=>{
+    if(finger.active){
+      finger.x = e.clientX;
+      finger.y = e.clientY;
+    }
   }, {passive:false});
-  window.addEventListener('pointerup', (e) => {
+  window.addEventListener('pointerup', e=>{
     finger.active = false;
   }, {passive:false});
-  window.addEventListener('pointercancel', ()=> finger.active = false);
+  window.addEventListener('pointercancel', e=>{
+    finger.active = false;
+  });
 
-  // collision resolution (elastic-ish) between two circular comets
+  // Collision detection and resolution for comets (elastic)
   function resolveCollision(a,b){
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     let dist = Math.hypot(dx,dy);
-    if (dist === 0) { dist = 0.01; }
+    if(dist === 0) dist = 0.01;
     const overlap = a.size + b.size - dist;
-    if (overlap > 0){
+    if(overlap > 0){
       const nx = dx/dist, ny = dy/dist;
-      // separate
-      const totalMass = a.mass + b.mass;
-      const aShift = (b.mass/totalMass) * overlap;
-      const bShift = (a.mass/totalMass) * overlap;
-      a.x -= nx * aShift;
-      a.y -= ny * aShift;
-      b.x += nx * bShift;
-      b.y += ny * bShift;
 
-      // relative velocity along normal
+      // Separate comets proportional to mass
+      const totalMass = a.mass + b.mass;
+      const aShift = (b.mass/totalMass)*overlap;
+      const bShift = (a.mass/totalMass)*overlap;
+      a.x -= nx*aShift;
+      a.y -= ny*aShift;
+      b.x += nx*bShift;
+      b.y += ny*bShift;
+
+      // Relative velocity
       const rvx = b.vx - a.vx;
       const rvy = b.vy - a.vy;
       const velAlongNormal = rvx*nx + rvy*ny;
-      if (velAlongNormal > 0) return; // moving apart
+      if(velAlongNormal > 0) return; // moving apart
 
       const e = RESTITUTION;
-      const j = -(1+e) * velAlongNormal / (1/a.mass + 1/b.mass);
-      const ix = j * nx;
-      const iy = j * ny;
-      a.vx -= ix / a.mass;
-      a.vy -= iy / a.mass;
-      b.vx += ix / b.mass;
-      b.vy += iy / b.mass;
+      const j = -(1+e)*velAlongNormal / (1/a.mass + 1/b.mass);
+
+      const ix = j*nx;
+      const iy = j*ny;
+
+      a.vx -= ix/a.mass;
+      a.vy -= iy/a.mass;
+      b.vx += ix/b.mass;
+      b.vy += iy/b.mass;
     }
   }
 
-  // update physics
+  // Update physics
   function update(dt){
-    // update planets orbit positions
-    for (let p of planets){
-      p.angle += p.angularSpeed * dt * 1000; // scale angularSpeed into per-frame
-      p.x = p.centerX + Math.cos(p.angle) * p.orbitRadius;
-      p.y = p.centerY + Math.sin(p.angle) * p.orbitRadius;
-      // tiny random wobble to orbital center for organic motion
+    // Update planets orbit positions
+    for(let p of planets){
+      p.angle += p.angularSpeed * dt * 1000;
+      p.x = p.centerX + Math.cos(p.angle)*p.orbitRadius;
+      p.y = p.centerY + Math.sin(p.angle)*p.orbitRadius;
+      // slight wobble
       p.centerX += Math.sin(p.angle*0.5 + p.size)*0.0006;
       p.centerY += Math.cos(p.angle*0.7 - p.size)*0.0005;
     }
 
-    // For each comet: apply steering toward finger if active, apply finger gravity and planet gravity, move, trail
-    for (let c of comets){
-      // steering towards finger (smooth accelerate/decelerate)
-      if (finger.active){
+    for(let c of comets){
+      // Steering toward finger if active
+      if(finger.active){
         const dx = finger.x - c.x;
         const dy = finger.y - c.y;
-        const dist = Math.hypot(dx,dy);
-        if (dist > 0.6){
+        const dist = Math.hypot(dx, dy);
+        if(dist > 0.6){
           const nx = dx / dist;
           const ny = dy / dist;
-          const desiredAcc = Math.min(MAX_ACCEL, dist * 0.018); // increases with distance
-          // smoothing blend
-          c.vx += nx * desiredAcc * SMOOTHING;
-          c.vy += ny * desiredAcc * SMOOTHING;
-          // braking when very close
-          if (dist < c.size * 1.2){
+          const desiredAcc = Math.min(MAX_ACCEL, dist*0.018);
+          c.vx += nx*desiredAcc*SMOOTHING;
+          c.vy += ny*desiredAcc*SMOOTHING;
+          if(dist < c.size*1.2){
             c.vx *= 0.88;
             c.vy *= 0.88;
           }
         }
-        // apply finger gravity as a dominant inverse-square force (stronger than planets)
+
+        // Finger gravity inverse-square (stronger)
         {
-          const dx2 = finger.x - c.x;
-          const dy2 = finger.y - c.y;
-          let d2sq = dx2*dx2 + dy2*dy2;
-          const minD = Math.max(12, (c.size)); // safety
-          if (d2sq < minD*minD) d2sq = minD*minD;
-          const d2 = Math.sqrt(d2sq);
-          const fg = (FINGER_GRAV_SCALE * 2000) / d2sq; // finger mass scaled large
-          c.vx += (dx2 / d2) * fg;
-          c.vy += (dy2 / d2) * fg;
+          let dx2 = finger.x - c.x;
+          let dy2 = finger.y - c.y;
+          let distSq = dx2*dx2 + dy2*dy2;
+          const minD = Math.max(12, c.size);
+          if(distSq < minD*minD) distSq = minD*minD;
+          let dist2 = Math.sqrt(distSq);
+          const fg = (FINGER_GRAV_SCALE * 2000) / distSq;
+          c.vx += (dx2 / dist2)*fg;
+          c.vy += (dy2 / dist2)*fg;
+
+          // Blend comet color green->purple based on distance threshold (e.g. 50 px)
+          if(dist2 < 50){
+            c.blend = Math.min(1, c.blend + 0.05);
+          } else {
+            c.blend = Math.max(0, c.blend - 0.03);
+          }
         }
+      } else {
+        // Fade back green if no finger
+        c.blend = Math.max(0, c.blend - 0.03);
       }
 
-      // planet gravity always on (inverse-square)
-      for (let p of planets){
+      // Planet gravity inverse-square
+      for(let p of planets){
         const dx = p.x - c.x;
         const dy = p.y - c.y;
         let distSq = dx*dx + dy*dy;
-        const minDist = Math.max( (p.size + c.size)*0.6, 12 );
-        if (distSq < minDist*minDist) distSq = minDist*minDist;
+        const minDist = Math.max((p.size + c.size)*0.6, 12);
+        if(distSq < minDist*minDist) distSq = minDist*minDist;
         const dist = Math.sqrt(distSq);
-        const force = (p.mass * PLANET_GRAV_SCALE) / distSq;
-        c.vx += (dx/dist) * force;
-        c.vy += (dy/dist) * force;
+        const force = (p.mass * PLANET_GRAV_SCALE)/distSq;
+        c.vx += (dx/dist)*force;
+        c.vy += (dy/dist)*force;
       }
 
-      // friction/damping
+      // Apply friction/damping
       c.vx *= FRICTION;
       c.vy *= FRICTION;
 
-      // update pos
+      // Update position
       c.x += c.vx;
       c.y += c.vy;
 
-      // wrap edges gently (allow them to go off-screen a bit)
-      if (c.x < -60) c.x = W + 60;
-      if (c.x > W + 60) c.x = -60;
-      if (c.y < -60) c.y = H + 60;
-      if (c.y > H + 60) c.y = -60;
+      // Wrap around edges gently (allow off screen a bit)
+      if(c.x < -60) c.x = W+60;
+      if(c.x > W+60) c.x = -60;
+      if(c.y < -60) c.y = H+60;
+      if(c.y > H+60) c.y = -60;
 
-      // trail
-      c.trail.push({ x: c.x, y: c.y });
-      if (c.trail.length > TRAIL_LEN) c.trail.shift();
+      // Update trail
+      c.trail.push({x: c.x, y: c.y});
+      if(c.trail.length > MAX_TRAIL) c.trail.shift();
     }
 
-    // collisions pairwise
-    for (let i=0;i<comets.length;i++){
-      for (let j=i+1;j<comets.length;j++){
+    // Resolve collisions between comets
+    for(let i=0; i<comets.length; i++){
+      for(let j=i+1; j<comets.length; j++){
         resolveCollision(comets[i], comets[j]);
       }
     }
   }
 
-  // rendering helpers
-  function drawStarfield(avgVx, avgVy){
-    // gradient background
-    const g = ctx.createLinearGradient(0,0,0,H);
-    g.addColorStop(0, '#000012');
-    g.addColorStop(1, '#000000');
-    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  // Draw starfield
+  function drawStarfield(avgVx=0, avgVy=0){
+    const grad = ctx.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0, '#000014');
+    grad.addColorStop(1, '#000000');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,W,H);
 
-    // draw stars with parallax
-    for (let s of stars){
-      s.x += -avgVx * 0.02 * s.layer;
-      s.y += -avgVy * 0.02 * s.layer;
-      if (s.x < 0) s.x = W;
-      if (s.x > W) s.x = 0;
-      if (s.y < 0) s.y = H;
-      if (s.y > H) s.y = 0;
+    for(let s of stars){
+      s.x += -avgVx*0.02*s.layer;
+      s.y += -avgVy*0.02*s.layer;
+      if(s.x < 0) s.x = W;
+      if(s.x > W) s.x = 0;
+      if(s.y < 0) s.y = H;
+      if(s.y > H) s.y = 0;
+
       ctx.globalAlpha = 0.95;
       ctx.beginPath();
       ctx.fillStyle = 'white';
-      ctx.arc(s.x, s.y, s.r * (0.6 + s.layer*0.8), 0, Math.PI*2);
+      ctx.arc(s.x, s.y, s.r*(0.6 + s.layer*0.8), 0, Math.PI*2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
 
+  // Draw planets with glow
   function drawPlanets(){
-    for (let p of planets){
-      // soft glow
+    for(let p of planets){
       const glow = ctx.createRadialGradient(p.x, p.y, p.size*0.2, p.x, p.y, p.size*2.5);
       glow.addColorStop(0, 'rgba(255,255,255,0.9)');
       glow.addColorStop(0.08, p.color);
@@ -270,7 +306,6 @@
       ctx.arc(p.x, p.y, p.size*1.5, 0, Math.PI*2);
       ctx.fill();
 
-      // body
       const body = ctx.createRadialGradient(p.x - p.size*0.3, p.y - p.size*0.3, p.size*0.15, p.x, p.y, p.size);
       body.addColorStop(0, '#fffdf8');
       body.addColorStop(0.35, p.color);
@@ -280,7 +315,6 @@
       ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
       ctx.fill();
 
-      // rim
       ctx.strokeStyle = 'rgba(0,0,0,0.25)';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -289,115 +323,96 @@
     }
   }
 
-  // procedural rocky green comet drawing
+  // Draw rocky green-purple comet with trail
   function drawComet(c){
-    // trail glow
-    if (c.trail.length > 1){
+    // Trail glow
+    if(c.trail.length > 1){
       ctx.beginPath();
-      for (let i=0;i<c.trail.length;i++){
+      for(let i=0; i<c.trail.length; i++){
         const p = c.trail[i];
-        if (i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+        if(i===0) ctx.moveTo(p.x,p.y);
+        else ctx.lineTo(p.x,p.y);
       }
-      ctx.strokeStyle = 'rgba(110,255,140,0.16)';
-      ctx.lineWidth = Math.max(1, c.size*0.6);
+      ctx.strokeStyle = `rgba(${Math.floor(c.baseColor.r*(1-c.blend)+c.targetColor.r*c.blend)},${Math.floor(c.baseColor.g*(1-c.blend)+c.targetColor.g*c.blend)},${Math.floor(c.baseColor.b*(1-c.blend)+c.targetColor.b*c.blend)},0.15)`;
+      ctx.lineWidth = Math.max(1,c.size*0.6);
       ctx.stroke();
     }
 
-    // irregular rock silhouette
+    // Rocky irregular shape
     ctx.save();
-    ctx.shadowColor = 'rgba(120,255,140,0.9)';
-    ctx.shadowBlur = 18;
+    ctx.shadowColor = `rgba(${Math.floor(c.baseColor.r*(1-c.blend)+c.targetColor.r*c.blend)},${Math.floor(c.baseColor.g*(1-c.blend)+c.targetColor.g*c.blend)},${Math.floor(c.baseColor.b*(1-c.blend)+c.targetColor.b*c.blend)},0.8)`;
+    ctx.shadowBlur = 16;
     const steps = 22;
     ctx.beginPath();
-    for (let i=0;i<=steps;i++){
-      const t = (i/steps) * Math.PI*2;
-      const jitter = 0.8 + 0.25 * Math.sin(i*3 + c.x*0.01) + (Math.random()*0.06);
-      const rx = c.x + Math.cos(t) * c.size * jitter * (0.85 + Math.sin(i*5 + c.y*0.01)*0.12);
-      const ry = c.y + Math.sin(t) * c.size * jitter * (0.85 + Math.cos(i*4 + c.x*0.01)*0.12);
-      if (i===0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry);
+    for(let i=0; i<=steps; i++){
+      const t = (i/steps)*Math.PI*2;
+      const jitter = 0.8 + 0.25*Math.sin(i*3 + c.x*0.01) + (Math.random()*0.06);
+      const rx = c.x + Math.cos(t)*c.size*jitter*(0.85 + Math.sin(i*5 + c.y*0.01)*0.12);
+      const ry = c.y + Math.sin(t)*c.size*jitter*(0.85 + Math.cos(i*4 + c.x*0.01)*0.12);
+      if(i===0) ctx.moveTo(rx,ry);
+      else ctx.lineTo(rx,ry);
     }
     ctx.closePath();
-    // gradient fill
+    // Gradient fill with blend
     const g = ctx.createRadialGradient(c.x - c.size*0.18, c.y - c.size*0.18, c.size*0.07, c.x, c.y, c.size);
-    g.addColorStop(0, '#d8ffd9');
-    g.addColorStop(0.45, '#56ff6d');
+    const r = Math.floor(c.baseColor.r*(1-c.blend)+c.targetColor.r*c.blend);
+    const gr = Math.floor(c.baseColor.g*(1-c.blend)+c.targetColor.g*c.blend);
+    const b = Math.floor(c.baseColor.b*(1-c.blend)+c.targetColor.b*c.blend);
+    g.addColorStop(0, `rgb(${r},${gr},${b})`);
+    g.addColorStop(0.45, `rgb(${Math.floor(r*0.55)},${Math.floor(gr*0.55)},${Math.floor(b*0.55)})`);
     g.addColorStop(1, '#052e10');
     ctx.fillStyle = g;
     ctx.fill();
     ctx.restore();
 
-    // crater speckles
+    // Crater speckles
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    for (let i=0;i<6;i++){
+    for(let i=0; i<6; i++){
       const a = Math.random()*Math.PI*2;
-      const r = Math.random()*c.size*0.6;
-      const sx = c.x + Math.cos(a)*r;
-      const sy = c.y + Math.sin(a)*r;
+      const rr = Math.random()*c.size*0.6;
+      const sx = c.x + Math.cos(a)*rr;
+      const sy = c.y + Math.sin(a)*rr;
       ctx.beginPath();
       ctx.arc(sx, sy, Math.max(1, c.size*0.12*Math.random()), 0, Math.PI*2);
       ctx.fill();
     }
 
-    // specular highlight
+    // Specular highlight
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.beginPath();
     ctx.arc(c.x - c.size*0.28, c.y - c.size*0.28, Math.max(1.2, c.size*0.18), 0, Math.PI*2);
     ctx.fill();
   }
 
-  // main loop
-  let last = performance.now();
-  function loop(now){
-    const dt = Math.min(0.035, (now - last)/1000); last = now;
+  let lastTime = performance.now();
+  function animate(time=performance.now()){
+    const dt = Math.min(0.035, (time - lastTime)/1000);
+    lastTime = time;
+
     update(dt);
 
-    // compute avg velocity for star parallax
-    let avgVx = 0, avgVy = 0;
-    if (comets.length>0){
-      for (let c of comets){ avgVx += c.vx; avgVy += c.vy; }
-      avgVx /= comets.length; avgVy /= comets.length;
+    // average comet velocity for star parallax
+    let avgVx=0, avgVy=0;
+    for(let c of comets){
+      avgVx += c.vx;
+      avgVy += c.vy;
     }
+    avgVx /= comets.length;
+    avgVy /= comets.length;
 
-    // render
     drawStarfield(avgVx, avgVy);
     drawPlanets();
 
-    // draw comets sorted by y (simple painter's depth)
-    const sorted = comets.slice().sort((a,b)=>a.y - b.y);
-    for (let c of sorted) drawComet(c);
+    // Draw comets sorted by y (painter's algorithm)
+    const sorted = comets.slice().sort((a,b)=>a.y-b.y);
+    for(let c of sorted) drawComet(c);
 
-    requestAnimationFrame(loop);
-  }
-  requestAnimationFrame(loop);
-
-  // initial starfield draw uses avg 0
-  function drawStarfield(avgVx=0, avgVy=0){
-    const g = ctx.createLinearGradient(0,0,0,H);
-    g.addColorStop(0, '#000014');
-    g.addColorStop(1, '#000000');
-    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
-
-    // draw stars (they've been updated in update via parallax)
-    for (let s of stars){
-      ctx.globalAlpha = 0.95;
-      ctx.beginPath();
-      ctx.fillStyle = 'white';
-      ctx.arc(s.x, s.y, s.r * (0.6 + s.layer*0.8), 0, Math.PI*2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+    requestAnimationFrame(animate);
   }
 
-  // small helper: clamp value
-  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  animate();
 
-  // ensure scene initially drawn
-  // already started loop
-
-  // Expose simple tuning in console if needed
-  window._sim = { comets, planets, stars, params: { PLANET_GRAV_SCALE, FINGER_GRAV_SCALE } };
-
-})(); // IIFE end
+})();
 </script>
 </body>
 </html>

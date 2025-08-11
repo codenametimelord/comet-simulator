@@ -27,6 +27,7 @@
         background: rgba(0,0,0,0.5);
         padding: 8px;
         border-radius: 8px;
+        user-select: none;
     }
     #startBtn {
         position: absolute;
@@ -67,13 +68,19 @@ window.addEventListener("resize", resizeCanvas);
 
 let comet = { x: canvas.width / 2, y: canvas.height / 2, vx: 0, vy: 0, size: 15 };
 let friction = 0.98;
-let acceleration = 0.0015;
+let acceleration = 0.0015; // tilt sensitivity
 
 let stars = [];
 for (let i = 0; i < 200; i++) {
-    stars.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: Math.random() * 2, speed: Math.random() * 0.5 + 0.2 });
+    stars.push({ 
+        x: Math.random() * canvas.width, 
+        y: Math.random() * canvas.height, 
+        size: Math.random() * 2, 
+        speed: Math.random() * 0.5 + 0.2 
+    });
 }
 
+// Planets
 let planets = [
     { x: canvas.width * 0.3, y: canvas.height * 0.4, size: 30, mass: 5000, color: "orange" },
     { x: canvas.width * 0.7, y: canvas.height * 0.6, size: 40, mass: 8000, color: "blue" }
@@ -98,35 +105,41 @@ function drawStars() {
 }
 
 function updateComet() {
+    // Tilt movement first (player always controls)
     comet.vx += tiltX * acceleration;
     comet.vy += tiltY * acceleration;
 
-    // Apply gravity from planets if enabled
+    // Gravity from planets (weaker influence)
     if (planetGravityEnabled) {
         planets.forEach(planet => {
             let dx = planet.x - comet.x;
             let dy = planet.y - comet.y;
             let distSq = dx * dx + dy * dy;
             let dist = Math.sqrt(distSq);
-            if (dist > planet.size) { // avoid crazy speeds near center
-                let force = planet.mass / distSq;
+
+            if (dist > planet.size) { 
+                let force = (planet.mass / distSq) * 0.0005; // very subtle
                 comet.vx += (dx / dist) * force;
                 comet.vy += (dy / dist) * force;
             }
         });
     }
 
+    // Friction
     comet.vx *= friction;
     comet.vy *= friction;
 
+    // Position update
     comet.x += comet.vx;
     comet.y += comet.vy;
 
+    // Wrap edges
     if (comet.x < 0) comet.x = canvas.width;
     if (comet.x > canvas.width) comet.x = 0;
     if (comet.y < 0) comet.y = canvas.height;
     if (comet.y > canvas.height) comet.y = 0;
 
+    // Trail
     trail.push({ x: comet.x, y: comet.y });
     if (trail.length > 30) trail.shift();
 }
@@ -138,23 +151,18 @@ function drawComet() {
     trail.forEach(p => ctx.lineTo(p.x, p.y));
     ctx.stroke();
 
-    // Kryptonite comet - glowing green rock
+    // Kryptonite comet
     let gradient = ctx.createRadialGradient(comet.x, comet.y, comet.size * 0.2, comet.x, comet.y, comet.size);
     gradient.addColorStop(0, "lime");
     gradient.addColorStop(1, "darkgreen");
-
     ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(comet.x, comet.y, comet.size, 0, Math.PI * 2);
-    ctx.fill();
 
-    // Outer glow
     ctx.shadowColor = "lime";
     ctx.shadowBlur = 15;
     ctx.beginPath();
     ctx.arc(comet.x, comet.y, comet.size, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0; // reset
+    ctx.shadowBlur = 0;
 }
 
 function drawPlanets() {

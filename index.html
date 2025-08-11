@@ -1,115 +1,94 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kryptonite Comet Gravity Sim</title>
+<title>Kryptonite Comet - Tilt Gravity Simulator</title>
 <style>
-    html, body {
+    body {
         margin: 0;
-        padding: 0;
-        overflow: hidden;
         background: black;
-        height: 100%;
+        overflow: hidden;
+        color: white;
+        font-family: sans-serif;
     }
-    canvas {
-        display: block;
-        width: 100vw;
-        height: 100vh;
-    }
-    #ui {
+    #toggleGravity {
         position: absolute;
         top: 10px;
         left: 10px;
-        color: white;
-        font-family: sans-serif;
-        font-size: 14px;
-        background: rgba(0,0,0,0.5);
-        padding: 8px;
-        border-radius: 8px;
-        user-select: none;
-    }
-    #startBtn {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        padding: 15px 30px;
-        font-size: 18px;
-        background: #0ff;
-        color: black;
-        border: none;
-        border-radius: 10px;
+        z-index: 10;
+        padding: 10px;
+        background: rgba(0,0,0,0.6);
+        border: 1px solid #0f0;
+        color: #0f0;
         cursor: pointer;
     }
 </style>
 </head>
 <body>
+<button id="toggleGravity">Toggle Gravity: ON</button>
 <canvas id="gameCanvas"></canvas>
-
-<div id="ui">
-    <label>
-        <input type="checkbox" id="gravityToggle" checked> Planet Gravity
-    </label>
-</div>
-
-<button id="startBtn">Start Game</button>
 
 <script>
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
+// Comet
+let comet = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    vx: 0,
+    vy: 0,
+    size: 20
+};
 
-let comet = { x: canvas.width / 2, y: canvas.height / 2, vx: 0, vy: 0, size: 15 };
-let friction = 0.98;
-let acceleration = 0.0015; // tilt sensitivity
-
-let stars = [];
-for (let i = 0; i < 200; i++) {
-    stars.push({ 
-        x: Math.random() * canvas.width, 
-        y: Math.random() * canvas.height, 
-        size: Math.random() * 2, 
-        speed: Math.random() * 0.5 + 0.2 
-    });
-}
+// Controls
+let tiltX = 0;
+let tiltY = 0;
+let acceleration = 0.1;
+let friction = 0.99;
 
 // Planets
-let planets = [
-    { x: canvas.width * 0.3, y: canvas.height * 0.4, size: 30, mass: 5000, color: "orange" },
-    { x: canvas.width * 0.7, y: canvas.height * 0.6, size: 40, mass: 8000, color: "blue" }
-];
-
-let trail = [];
-let tiltX = 0, tiltY = 0;
-let running = false;
+let planets = [];
 let planetGravityEnabled = true;
+document.getElementById("toggleGravity").onclick = () => {
+    planetGravityEnabled = !planetGravityEnabled;
+    document.getElementById("toggleGravity").innerText = 
+        `Toggle Gravity: ${planetGravityEnabled ? 'ON' : 'OFF'}`;
+};
 
-document.getElementById("gravityToggle").addEventListener("change", (e) => {
-    planetGravityEnabled = e.target.checked;
+// Generate random planets
+function generatePlanets(num) {
+    planets = [];
+    for (let i = 0; i < num; i++) {
+        let size = Math.random() * 40 + 20;
+        let mass = size * 100; // mass proportional to size
+        let color = `hsl(${Math.random() * 360}, 80%, 60%)`;
+        let x, y;
+        // Avoid spawning too close to the comet
+        do {
+            x = Math.random() * canvas.width;
+            y = Math.random() * canvas.height;
+        } while (Math.hypot(x - comet.x, y - comet.y) < 150);
+
+        planets.push({ x, y, size, mass, color });
+    }
+}
+generatePlanets(6);
+
+// Device tilt controls
+window.addEventListener("deviceorientation", (e) => {
+    tiltX = e.gamma / 45; // left/right
+    tiltY = e.beta / 45;  // up/down
 });
 
-function drawStars() {
-    ctx.fillStyle = "white";
-    stars.forEach(star => {
-        ctx.beginPath();
-        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-        ctx.fill();
-    });
-}
-
-function updateComet() {
-    // Tilt movement first (player always controls)
+// Update
+function update() {
+    // Tilt control
     comet.vx += tiltX * acceleration;
     comet.vy += tiltY * acceleration;
 
-    // Gravity from planets (weaker influence)
+    // Gravity
     if (planetGravityEnabled) {
         planets.forEach(planet => {
             let dx = planet.x - comet.x;
@@ -117,107 +96,81 @@ function updateComet() {
             let distSq = dx * dx + dy * dy;
             let dist = Math.sqrt(distSq);
 
-            if (dist > planet.size) { 
-                let force = (planet.mass / distSq) * 0.0005; // very subtle
+            if (dist > planet.size) {
+                let force = (planet.mass / distSq) * 0.0005;
                 comet.vx += (dx / dist) * force;
                 comet.vy += (dy / dist) * force;
             }
         });
     }
 
-    // Friction
     comet.vx *= friction;
     comet.vy *= friction;
 
-    // Position update
     comet.x += comet.vx;
     comet.y += comet.vy;
 
-    // Wrap edges
+    // Wrap around screen
     if (comet.x < 0) comet.x = canvas.width;
     if (comet.x > canvas.width) comet.x = 0;
     if (comet.y < 0) comet.y = canvas.height;
     if (comet.y > canvas.height) comet.y = 0;
-
-    // Trail
-    trail.push({ x: comet.x, y: comet.y });
-    if (trail.length > 30) trail.shift();
 }
 
+// Draw comet with rock-like kryptonite texture
 function drawComet() {
-    // Trail
-    ctx.strokeStyle = "rgba(0, 255, 100, 0.5)";
-    ctx.beginPath();
-    trail.forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.stroke();
+    let gradient = ctx.createRadialGradient(
+        comet.x, comet.y, comet.size * 0.2,
+        comet.x, comet.y, comet.size
+    );
+    gradient.addColorStop(0, "#4aff4a");
+    gradient.addColorStop(0.7, "#006600");
+    gradient.addColorStop(1, "#001a00");
 
-    // Kryptonite comet
-    let gradient = ctx.createRadialGradient(comet.x, comet.y, comet.size * 0.2, comet.x, comet.y, comet.size);
-    gradient.addColorStop(0, "lime");
-    gradient.addColorStop(1, "darkgreen");
     ctx.fillStyle = gradient;
-
-    ctx.shadowColor = "lime";
-    ctx.shadowBlur = 15;
     ctx.beginPath();
     ctx.arc(comet.x, comet.y, comet.size, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0;
+
+    // Add speckles for rocky look
+    for (let i = 0; i < 8; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let radius = Math.random() * comet.size * 0.8;
+        let sx = comet.x + Math.cos(angle) * radius;
+        let sy = comet.y + Math.sin(angle) * radius;
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.beginPath();
+        ctx.arc(sx, sy, Math.random() * 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
 }
 
+// Draw planets
 function drawPlanets() {
     planets.forEach(planet => {
-        let gradient = ctx.createRadialGradient(planet.x, planet.y, planet.size * 0.2, planet.x, planet.y, planet.size);
-        gradient.addColorStop(0, "white");
-        gradient.addColorStop(1, planet.color);
-        ctx.fillStyle = gradient;
+        ctx.fillStyle = planet.color;
         ctx.beginPath();
         ctx.arc(planet.x, planet.y, planet.size, 0, Math.PI * 2);
         ctx.fill();
     });
 }
 
-function updateStars() {
-    stars.forEach(star => {
-        star.x -= comet.vx * star.speed * 0.05;
-        star.y -= comet.vy * star.speed * 0.05;
-        if (star.x < 0) star.x = canvas.width;
-        if (star.x > canvas.width) star.x = 0;
-        if (star.y < 0) star.y = canvas.height;
-        if (star.y > canvas.height) star.y = 0;
-    });
-}
-
+// Loop
 function gameLoop() {
-    if (!running) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    updateStars();
-    drawStars();
+
+    update();
     drawPlanets();
-    updateComet();
     drawComet();
+
     requestAnimationFrame(gameLoop);
 }
+gameLoop();
 
-document.getElementById("startBtn").addEventListener("click", () => {
-    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission().then(response => {
-            if (response === 'granted') startGame();
-        }).catch(console.error);
-    } else {
-        startGame();
-    }
+window.addEventListener("resize", () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 });
-
-function startGame() {
-    document.getElementById("startBtn").style.display = "none";
-    window.addEventListener("deviceorientation", (e) => {
-        tiltX = e.gamma || 0;
-        tiltY = e.beta || 0;
-    }, true);
-    running = true;
-    gameLoop();
-}
 </script>
 </body>
 </html>
